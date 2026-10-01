@@ -517,50 +517,46 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   })();
 
-});
+  // ---- Print button: include current month (YYYY-MM) + magic_key ----
+  (function setupPrintButton(){
+    var printA = document.getElementById('printBtn');
+    if (!printA) return;
 
-// ---- Print button: include current month (YYYY-MM) + magic_key ----
-(function setupPrintButton(){
-  var printA = document.getElementById('printBtn');
-  if (!printA) return;
+    function pad2(n){ return (n < 10 ? '0' : '') + n; }
 
-  function pad2(n){ return (n < 10 ? '0' : '') + n; }
+    function ymFromDate(d){
+      // month shown by FC view uses a date range; use currentDate as the anchor
+      var y = d.getFullYear();
+      var m = d.getMonth() + 1;
+      return y + '-' + pad2(m);
+    }
 
-  function ymFromDate(d){
-    // month shown by FC view uses a date range; use currentDate as the anchor
-    var y = d.getFullYear();
-    var m = d.getMonth() + 1;
-    return y + '-' + pad2(m);
-  }
+    function updatePrintHref(){
+      // Use calendar.getDate() which tracks the current navigated date
+      var d = calendar.getDate();
+      var ym = ymFromDate(d);
 
-  function updatePrintHref(){
-    // Use calendar.getDate() which tracks the current navigated date
-    var d = calendar.getDate();
-    var ym = ymFromDate(d);
+      var url = new URL('print_calendar.php', window.location.origin + window.location.pathname);
+      url.pathname = url.pathname.replace(/\/[^\/]*$/, '/print_calendar.php'); // keep same directory
 
-    var url = new URL('print_calendar.php', window.location.origin + window.location.pathname);
-    url.pathname = url.pathname.replace(/\/[^\/]*$/, '/print_calendar.php'); // keep same directory
+      if (magicKey) url.searchParams.set('magic_key', magicKey);
+      url.searchParams.set('ym', ym);
 
-    if (magicKey) url.searchParams.set('magic_key', magicKey);
-    url.searchParams.set('ym', ym);
+      printA.setAttribute('href', url.pathname + '?' + url.searchParams.toString());
+    }
 
-    // If you also want to carry view type (optional):
-    // url.searchParams.set('view', calendar.view.type);
-
-    printA.setAttribute('href', url.pathname + '?' + url.searchParams.toString());
-  }
-
-  // Initial set
-  updatePrintHref();
-
-  // Keep updated as user navigates months/weeks/days
-  var oldDatesSet = calendar.getOption('datesSet');
-  calendar.setOption('datesSet', function(arg){
-    if (typeof oldDatesSet === 'function') oldDatesSet(arg);
+    // Initial set
     updatePrintHref();
-  });
 
-})();
+    // Keep updated as user navigates months/weeks/days
+    var oldDatesSet = calendar.getOption('datesSet');
+    calendar.setOption('datesSet', function(arg){
+      if (typeof oldDatesSet === 'function') oldDatesSet(arg);
+      updatePrintHref();
+    });
+  })();
+
+});
 
 </script>
 </body>

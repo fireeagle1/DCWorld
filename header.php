@@ -33,6 +33,16 @@ if (!isset($page_title)) {
                 var(--primary-gradient-end));
         }
 
+        /* Keep the site navbar in normal flow and always above page content.
+           Prevents the header (and its dropdowns) from being overlapped by,
+           or sliding under, page content that sets its own stacking/sticky rules. */
+        .navbar {
+            position: relative;
+            z-index: 1030;
+        }
+        /* Dropdown menus must stack above sticky page toolbars (which often use z-index up to ~1030). */
+        .navbar .dropdown-menu { z-index: 1050; }
+
         .navbar-brand,
         .navbar-nav .nav-link { color: var(--white) !important; font-weight: 600; }
         .navbar-nav .nav-link:hover { color: #f8f9fa !important; }
