@@ -66,10 +66,15 @@ function handle_get(): void {
     $startDt = date('Y-m-d 00:00:00', strtotime($start));
     $endDt = date('Y-m-d 23:59:59', strtotime($end));
 
+    // An event overlaps the [start, end] range when it begins on/before the range end
+    // AND finishes on/after the range start. When EndDateTime is NULL (e.g. all-day or
+    // single-point events), the event is treated as ending at its own StartDateTime —
+    // otherwise a NULL end has no lower bound and the event matches every future day.
     $stmt = $link->prepare(
         "SELECT EventID, EventTitle, StartDateTime, EndDateTime, Location, AllDay, Source, userID
          FROM Events
-         WHERE StartDateTime <= ? AND (EndDateTime IS NULL OR EndDateTime >= ?)
+         WHERE StartDateTime <= ?
+           AND COALESCE(EndDateTime, StartDateTime) >= ?
          ORDER BY StartDateTime ASC"
     );
     $stmt->bind_param('ss', $endDt, $startDt);
