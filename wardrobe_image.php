@@ -13,9 +13,9 @@ declare(strict_types=1);
 ob_start();
 
 // Include config for DB connection and JWT constants
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/auth_middleware.php';
-require_once dirname(__DIR__) . '/wardrobe_common.php';
+require_once __DIR__ . '/api/config.php';
+require_once __DIR__ . '/api/auth_middleware.php';
+require_once __DIR__ . '/wardrobe_common.php';
 
 // Authenticate via JWT (will exit with JSON error if fails)
 $userID = require_auth();
