@@ -1,0 +1,13 @@
+# API .htaccess
+# Enable CORS and ensure PHP handles requests properly
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Handle OPTIONS preflight requests
+    RewriteCond %{REQUEST_METHOD} OPTIONS
+    RewriteRule ^(.*)$ $1 [R=204,L]
+</IfModule>
+
+# Prevent directory listing
+Options -Indexes
