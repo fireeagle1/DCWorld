@@ -51,7 +51,13 @@ function handle_get(): void {
         $stmt->close();
 
         if (!$row) json_error('Contact not found', 404);
-        json_response(format_contact($row));
+
+        $contact = format_contact($row);
+
+        // Include preferences for single contact fetch
+        $contact['preferences'] = fetch_preferences($id);
+
+        json_response($contact);
     }
 
     // List with optional search
@@ -237,4 +243,34 @@ function format_contact(array $row): array {
         'postcode' => $row['Postcode'] ?? '',
         'photoURL' => $row['PhotoURL'] ?? null,
     ];
+}
+
+/**
+ * Fetch preferences for a contact from ContactPreferences + PreferenceTypes.
+ * Returns an array of { name: "Tea", value: "White, no sugar" } objects.
+ */
+function fetch_preferences(int $contactID): array {
+    global $link;
+
+    $stmt = $link->prepare(
+        "SELECT pt.Name, cp.Value
+         FROM ContactPreferences cp
+         INNER JOIN PreferenceTypes pt ON pt.PreferenceID = cp.PreferenceID
+         WHERE cp.ContactID = ?
+         ORDER BY pt.Name"
+    );
+    $stmt->bind_param('i', $contactID);
+    $stmt->execute();
+    $res = $stmt->get_result();
+
+    $prefs = [];
+    while ($row = $res->fetch_assoc()) {
+        $prefs[] = [
+            'name' => $row['Name'],
+            'value' => $row['Value'] ?? '',
+        ];
+    }
+    $stmt->close();
+
+    return $prefs;
 }

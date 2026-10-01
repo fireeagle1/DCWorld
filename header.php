@@ -93,8 +93,11 @@ if (!isset($page_title)) {
             }
         }
     </style>
+<?php if (!empty($wardrobe_modern)): ?>
+    <link rel="stylesheet" href="/wardrobe-modern.css?v=1">
+<?php endif; ?>
 </head>
-<body>
+<body<?= !empty($wardrobe_modern) ? ' class="wardrobe-page"' : '' ?>>
 
 <?php if (($_SERVER['HTTP_HOST'] ?? '') === 'dev.tyche.dcworld.uk'): ?>
     <div class="bg-danger text-white text-center py-2">DEV&nbsp;ENVIRONMENT</div>
@@ -142,6 +145,11 @@ if (!isset($page_title)) {
                 <!-- Contacts -->
                 <li class="nav-item">
                     <a class="nav-link" href="/home/manage_contacts.php">Contacts</a>
+                </li>
+
+                <!-- Wardrobe -->
+                <li class="nav-item">
+                    <a class="nav-link" href="/wardrobe.php">Wardrobe</a>
                 </li>
 
                 <!-- My Profile / Admin -->

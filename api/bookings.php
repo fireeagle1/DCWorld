@@ -21,6 +21,9 @@ switch ($method) {
     case 'POST':
         handle_create_booking();
         break;
+    case 'PUT':
+        handle_update_booking();
+        break;
     default:
         json_error('Method not allowed', 405);
 }
@@ -220,4 +223,97 @@ function handle_create_booking(): void {
 
     $guests = resolve_guests($row['GuestsJSON']);
     json_response(format_booking($row, $guests), 201);
+}
+
+/* ─── PUT: Update Booking ─────────────────────────────────── */
+function handle_update_booking(): void {
+    global $link, $userID;
+
+    $body = get_json_body();
+    $id = (int)require_field($body, 'id');
+
+    // Check booking exists
+    $check = $link->prepare("SELECT BookingID FROM Bookings WHERE BookingID = ?");
+    $check->bind_param('i', $id);
+    $check->execute();
+    if ($check->get_result()->num_rows === 0) {
+        $check->close();
+        json_error('Booking not found', 404);
+    }
+    $check->close();
+
+    // If only status is being updated (cancel operation)
+    if (isset($body['status']) && !isset($body['roomID'])) {
+        $status = trim($body['status']);
+        $stmt = $link->prepare("UPDATE Bookings SET Status = ? WHERE BookingID = ?");
+        $stmt->bind_param('si', $status, $id);
+
+        if (!$stmt->execute()) {
+            json_error('Failed to update booking: ' . $stmt->error, 500);
+        }
+        $stmt->close();
+
+        // Audit log
+        $stmtAudit = $link->prepare(
+            "INSERT INTO BookingsAuditLog (InitiatedBy, TargetBooking, ChangeMade, TimeStamp)
+             VALUES (?, ?, ?, NOW())"
+        );
+        $change = "Status changed to {$status} via mobile";
+        $stmtAudit->bind_param('iis', $userID, $id, $change);
+        $stmtAudit->execute();
+        $stmtAudit->close();
+    } else {
+        // Full update
+        $roomID = (int)require_field($body, 'roomID');
+        $start = require_field($body, 'start');
+        $end = require_field($body, 'end');
+        $occasion = trim($body['occasion'] ?? '');
+        $status = trim($body['status'] ?? 'Pencilled');
+        $guestIDs = $body['guestIDs'] ?? [];
+
+        if (empty($guestIDs)) {
+            json_error('At least one guest is required');
+        }
+
+        $guestIDs = array_map('intval', array_filter($guestIDs));
+        $guestsJSON = json_encode(['guests' => $guestIDs]);
+
+        $stmt = $link->prepare(
+            "UPDATE Bookings SET RoomID = ?, StartDateTime = ?, EndDateTime = ?, 
+                    Occasion = ?, GuestsJSON = ?, Status = ?
+             WHERE BookingID = ?"
+        );
+        $stmt->bind_param('isssssi', $roomID, $start, $end, $occasion, $guestsJSON, $status, $id);
+
+        if (!$stmt->execute()) {
+            json_error('Failed to update booking: ' . $stmt->error, 500);
+        }
+        $stmt->close();
+
+        // Audit log
+        $stmtAudit = $link->prepare(
+            "INSERT INTO BookingsAuditLog (InitiatedBy, TargetBooking, ChangeMade, TimeStamp)
+             VALUES (?, ?, 'Booking updated via mobile', NOW())"
+        );
+        $stmtAudit->bind_param('ii', $userID, $id);
+        $stmtAudit->execute();
+        $stmtAudit->close();
+    }
+
+    // Return the updated booking
+    $stmt = $link->prepare(
+        "SELECT b.BookingID, b.StartDateTime, b.EndDateTime, b.GuestsJSON,
+                b.Occasion, b.Status, b.RoomID,
+                r.Name AS RoomName
+         FROM Bookings b
+         LEFT JOIN HouseLocations r ON b.RoomID = r.RoomID
+         WHERE b.BookingID = ?"
+    );
+    $stmt->bind_param('i', $id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    $guests = resolve_guests($row['GuestsJSON']);
+    json_response(format_booking($row, $guests));
 }

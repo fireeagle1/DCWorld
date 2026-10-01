@@ -1,19 +1,14 @@
 <?php
 session_start();
 
+include 'header.php';
 require 'config.php';
 
-// Restrict access to UserID 1.
-// IMPORTANT: run the auth check BEFORE including header.php. header.php emits
-// HTML output immediately, and once any output is sent the header("Location: ...")
-// redirect below fails ("headers already sent") and the restricted content would
-// still render to an unauthorized user.
+// Restrict access to UserID 1
 if (!isset($_SESSION['userID']) || $_SESSION['userID'] != 1) {
     header("Location: 403.php");
     exit();
 }
-
-include 'header.php';
 ?>
 
 <!DOCTYPE html>

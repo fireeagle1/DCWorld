@@ -1,12 +1,8 @@
 <?php
 session_start();
 require 'config.php';
-// auth.php must run BEFORE header.php. header.php sends HTML output immediately,
-// and auth.php redirects logged-out users with header("Location: login.php"),
-// which fails once output has started. Including the header first let the page
-// render to unauthenticated visitors.
-require 'auth.php';
 require 'header.php';
+require 'auth.php';
 
 
 // Fetch descriptive mappings for work and night locations

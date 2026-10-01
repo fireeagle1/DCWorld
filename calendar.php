@@ -517,51 +517,50 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   })();
 
-  // ---- Print button: include current month (YYYY-MM) + magic_key ----
-  // Runs inside DOMContentLoaded, after the calendar has been created and
-  // rendered, so it shares scope with `calendar` and `calendar.getDate()` works.
-  (function setupPrintButton(){
-    var printA = document.getElementById('printBtn');
-    if (!printA) return;
-
-    function pad2(n){ return (n < 10 ? '0' : '') + n; }
-
-    function ymFromDate(d){
-      // month shown by FC view uses a date range; use currentDate as the anchor
-      var y = d.getFullYear();
-      var m = d.getMonth() + 1;
-      return y + '-' + pad2(m);
-    }
-
-    function updatePrintHref(){
-      // Use calendar.getDate() which tracks the current navigated date
-      var d = calendar.getDate();
-      var ym = ymFromDate(d);
-
-      var url = new URL('print_calendar.php', window.location.origin + window.location.pathname);
-      url.pathname = url.pathname.replace(/\/[^\/]*$/, '/print_calendar.php'); // keep same directory
-
-      if (magicKey) url.searchParams.set('magic_key', magicKey);
-      url.searchParams.set('ym', ym);
-
-      printA.setAttribute('href', url.pathname + '?' + url.searchParams.toString());
-    }
-
-    // Initial set
-    updatePrintHref();
-
-    // Keep updated as user navigates months/weeks/days.
-    // The calendar already has a datesSet handler defined in its config, so
-    // instead of overwriting it (which could clobber the monthTitle update),
-    // wrap the existing one.
-    var oldDatesSet = calendar.getOption('datesSet');
-    calendar.setOption('datesSet', function(arg){
-      if (typeof oldDatesSet === 'function') oldDatesSet(arg);
-      updatePrintHref();
-    });
-  })();
-
 });
+
+// ---- Print button: include current month (YYYY-MM) + magic_key ----
+(function setupPrintButton(){
+  var printA = document.getElementById('printBtn');
+  if (!printA) return;
+
+  function pad2(n){ return (n < 10 ? '0' : '') + n; }
+
+  function ymFromDate(d){
+    // month shown by FC view uses a date range; use currentDate as the anchor
+    var y = d.getFullYear();
+    var m = d.getMonth() + 1;
+    return y + '-' + pad2(m);
+  }
+
+  function updatePrintHref(){
+    // Use calendar.getDate() which tracks the current navigated date
+    var d = calendar.getDate();
+    var ym = ymFromDate(d);
+
+    var url = new URL('print_calendar.php', window.location.origin + window.location.pathname);
+    url.pathname = url.pathname.replace(/\/[^\/]*$/, '/print_calendar.php'); // keep same directory
+
+    if (magicKey) url.searchParams.set('magic_key', magicKey);
+    url.searchParams.set('ym', ym);
+
+    // If you also want to carry view type (optional):
+    // url.searchParams.set('view', calendar.view.type);
+
+    printA.setAttribute('href', url.pathname + '?' + url.searchParams.toString());
+  }
+
+  // Initial set
+  updatePrintHref();
+
+  // Keep updated as user navigates months/weeks/days
+  var oldDatesSet = calendar.getOption('datesSet');
+  calendar.setOption('datesSet', function(arg){
+    if (typeof oldDatesSet === 'function') oldDatesSet(arg);
+    updatePrintHref();
+  });
+
+})();
 
 </script>
 </body>

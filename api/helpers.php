@@ -8,6 +8,7 @@
  * Send a JSON success response.
  */
 function json_response(mixed $data, int $status = 200): void {
+    if (ob_get_level()) ob_end_clean();
     http_response_code($status);
     echo json_encode($data, JSON_UNESCAPED_UNICODE);
     exit;
@@ -17,6 +18,7 @@ function json_response(mixed $data, int $status = 200): void {
  * Send a JSON error response.
  */
 function json_error(string $message, int $status = 400): void {
+    if (ob_get_level()) ob_end_clean();
     http_response_code($status);
     echo json_encode(['error' => $message], JSON_UNESCAPED_UNICODE);
     exit;
