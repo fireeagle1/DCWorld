@@ -8,6 +8,16 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 
+// Fallback definitions so a stale/older config.php (missing these) does not
+// fatal-error. config.php should normally define both; these must match the
+// values used to sign and verify tokens across all environments.
+if (!defined('JWT_SECRET')) {
+    define('JWT_SECRET', 'vJV6VNQxjGQ8AaDQyVHHT76BdPh_mobile_api_2025');
+}
+if (!defined('JWT_EXPIRY')) {
+    define('JWT_EXPIRY', 86400 * 30); // 30 days
+}
+
 /**
  * Generate a JWT token for a user.
  */

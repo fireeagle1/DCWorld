@@ -13,6 +13,12 @@ declare(strict_types=1);
 // Buffer all output so we can clean it before sending the image
 ob_start();
 
+// Start/resume the web session BEFORE any output so browser (cookie-based)
+// requests can authenticate. Must happen before config.php emits anything.
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 // Include config (DB connection via $link) and wardrobe helpers.
 // This endpoint lives at the document root and must NOT depend on the api/
 // directory, which is not deployed on all environments.
@@ -77,24 +83,30 @@ if (!function_exists('wardrobe_verify_jwt')) {
 }
 
 /**
- * Authenticate the request via bearer token. Returns the user ID,
- * or sends a plain-text 401 and exits.
+ * Authenticate the request. Accepts EITHER a logged-in web session
+ * (cookie-based, used by the website) OR a JWT bearer token (used by
+ * the mobile app). Returns the user ID, or sends a 401 and exits.
  */
 function wardrobe_require_auth(): int {
-    $token = wardrobe_get_bearer_token();
-    $payload = $token ? wardrobe_verify_jwt($token) : null;
-
-    if (!$payload || !isset($payload['sub'])) {
-        while (ob_get_level()) ob_end_clean();
-        http_response_code(401);
-        header('Content-Type: text/plain; charset=utf-8');
-        exit('Authentication required');
+    // 1. Web session (browser)
+    if (isset($_SESSION['userID']) && (int)$_SESSION['userID'] > 0) {
+        return (int)$_SESSION['userID'];
     }
 
-    return (int)$payload['sub'];
+    // 2. JWT bearer token (mobile app)
+    $token = wardrobe_get_bearer_token();
+    $payload = $token ? wardrobe_verify_jwt($token) : null;
+    if ($payload && isset($payload['sub'])) {
+        return (int)$payload['sub'];
+    }
+
+    while (ob_get_level()) ob_end_clean();
+    http_response_code(401);
+    header('Content-Type: text/plain; charset=utf-8');
+    exit('Authentication required');
 }
 
-// Authenticate via JWT (will exit with 401 if it fails)
+// Authenticate via session or JWT (will exit with 401 if neither is valid)
 $userID = wardrobe_require_auth();
 
 $itemId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
