@@ -5,20 +5,97 @@ declare(strict_types=1);
  * JWT-authenticated wardrobe image delivery for the mobile app.
  * Mirrors the session-based /wardrobe_image.php but accepts bearer tokens.
  *
- * NOTE: api/config.php sets Content-Type: application/json and outputs CORS headers.
- * We must clean the output buffer and override headers before streaming image data.
+ * Self-contained: includes only root-level config.php and wardrobe_common.php,
+ * and verifies the JWT inline so it has no dependency on the api/ directory.
+ * We buffer output, then clean it and override headers before streaming the image.
  */
 
 // Buffer all output so we can clean it before sending the image
 ob_start();
 
-// Include config for DB connection and JWT constants
-require_once __DIR__ . '/api/config.php';
-require_once __DIR__ . '/api/auth_middleware.php';
+// Include config (DB connection via $link) and wardrobe helpers.
+// This endpoint lives at the document root and must NOT depend on the api/
+// directory, which is not deployed on all environments.
+require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/wardrobe_common.php';
 
-// Authenticate via JWT (will exit with JSON error if fails)
-$userID = require_auth();
+// JWT secret must match the one used to sign tokens at login.
+// Guard so we don't collide with a secret defined elsewhere.
+if (!defined('JWT_SECRET')) {
+    define('JWT_SECRET', 'vJV6VNQxjGQ8AaDQyVHHT76BdPh_mobile_api_2025');
+}
+
+// --- Minimal, dependency-free JWT verification (bearer token) -------------
+if (!function_exists('wardrobe_base64url_decode')) {
+    function wardrobe_base64url_decode(string $data): string {
+        return base64_decode(strtr($data, '-_', '+/'));
+    }
+}
+
+if (!function_exists('wardrobe_base64url_encode')) {
+    function wardrobe_base64url_encode(string $data): string {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+}
+
+if (!function_exists('wardrobe_get_bearer_token')) {
+    function wardrobe_get_bearer_token(): ?string {
+        $authHeader = '';
+        if (function_exists('getallheaders')) {
+            $headers = getallheaders();
+            $authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+        }
+        if ($authHeader === '') {
+            $authHeader = $_SERVER['HTTP_AUTHORIZATION']
+                ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+                ?? '';
+        }
+        if (preg_match('/Bearer\s+(.+)/i', (string)$authHeader, $m)) {
+            return trim($m[1]);
+        }
+        return null;
+    }
+}
+
+if (!function_exists('wardrobe_verify_jwt')) {
+    function wardrobe_verify_jwt(string $token): ?array {
+        $parts = explode('.', $token);
+        if (count($parts) !== 3) return null;
+        [$header, $payload, $signature] = $parts;
+
+        $expectedSig = wardrobe_base64url_encode(
+            hash_hmac('sha256', "{$header}.{$payload}", JWT_SECRET, true)
+        );
+        if (!hash_equals($expectedSig, $signature)) return null;
+
+        $data = json_decode(wardrobe_base64url_decode($payload), true);
+        if (!is_array($data)) return null;
+        if (isset($data['exp']) && $data['exp'] < time()) return null;
+
+        return $data;
+    }
+}
+
+/**
+ * Authenticate the request via bearer token. Returns the user ID,
+ * or sends a plain-text 401 and exits.
+ */
+function wardrobe_require_auth(): int {
+    $token = wardrobe_get_bearer_token();
+    $payload = $token ? wardrobe_verify_jwt($token) : null;
+
+    if (!$payload || !isset($payload['sub'])) {
+        while (ob_get_level()) ob_end_clean();
+        http_response_code(401);
+        header('Content-Type: text/plain; charset=utf-8');
+        exit('Authentication required');
+    }
+
+    return (int)$payload['sub'];
+}
+
+// Authenticate via JWT (will exit with 401 if it fails)
+$userID = wardrobe_require_auth();
 
 $itemId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
 $view = isset($_GET['view']) ? (string)$_GET['view'] : 'front';
@@ -119,7 +196,7 @@ while (ob_get_level()) {
     ob_end_clean();
 }
 
-// Remove all headers set by config.php and send correct image headers
+// Remove any headers set by included files and send correct image headers
 header_remove();
 header('Content-Type: ' . $mimeType);
 if ($fileSize !== false) {
