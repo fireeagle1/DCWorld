@@ -46,6 +46,12 @@ $showOnCall        = $isUser3 ? true  : !empty($pref['ShowOnCall']);
 $showDutySheet     = $isUser3 ? true  : !empty($pref['ShowDutySheet']);
 
 $link->close();
+
+/* ---------- iPhone calendar sync (ICS feed) ---------- */
+$icsScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$icsHost   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$icsDir    = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
+$icsFeedUrl = $icsScheme . '://' . $icsHost . $icsDir . '/calendar_ics.php?token=' . rawurlencode(MAGIC_KEY);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -238,6 +244,39 @@ main.page-pad { padding:10px; }
 </a>
 
         <a href="https://aceso.dcworld.uk/crons/import_dutysheet_events.php" class="btn btn-sm btn-info ml-1">Refresh Duties</a>
+        <button id="syncBtn" class="btn btn-sm btn-outline-dark ml-1" type="button" data-toggle="modal" data-target="#syncModal">Sync to iPhone</button>
+      </div>
+    </div>
+
+    <!-- iPhone / iCal sync modal -->
+    <div class="modal fade" id="syncModal" tabindex="-1" role="dialog" aria-labelledby="syncModalLabel" aria-hidden="true">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="syncModalLabel">Sync with your iPhone calendar</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-2">Add these events to your iPhone's Calendar app. Events stay up to date automatically.</p>
+            <ol class="pl-3 mb-3" style="font-size:14px;">
+              <li>Tap <strong>Subscribe on iPhone</strong> below (on your phone).</li>
+              <li>iOS opens the Calendar app and asks to add a subscribed calendar — tap <strong>Subscribe</strong>.</li>
+              <li>New and changed events will refresh on their own.</li>
+            </ol>
+
+            <a id="webcalLink" class="btn btn-primary btn-block mb-3" href="#">Subscribe on iPhone</a>
+
+            <label class="small text-muted mb-1">Or copy this subscription link and add it manually<br>(Settings &rarr; Calendar &rarr; Accounts &rarr; Add Subscribed Calendar):</label>
+            <div class="input-group input-group-sm mb-3">
+              <input type="text" id="syncUrl" class="form-control" readonly value="">
+              <div class="input-group-append">
+                <button class="btn btn-outline-secondary" type="button" id="copySyncUrl">Copy</button>
+              </div>
+            </div>
+
+            <a id="downloadIcs" class="btn btn-outline-secondary btn-sm" href="#">Download a one-off .ics file</a>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -462,6 +501,40 @@ document.addEventListener('DOMContentLoaded', function() {
     document.body.classList.toggle('fc-kiosk-off', !state.kiosk);
     setKioskLabel();
   });
+
+  // iPhone / iCal sync modal wiring
+  (function(){
+    var feedUrl = <?= json_encode($icsFeedUrl) ?>;          // https://.../calendar_ics.php?token=...
+    var webcalUrl = feedUrl.replace(/^https?:\/\//i, 'webcal://'); // iOS opens Calendar app
+
+    var webcalLink = document.getElementById('webcalLink');
+    var syncUrlInput = document.getElementById('syncUrl');
+    var downloadIcs = document.getElementById('downloadIcs');
+    var copyBtn = document.getElementById('copySyncUrl');
+
+    if (webcalLink) webcalLink.setAttribute('href', webcalUrl);
+    if (syncUrlInput) syncUrlInput.value = feedUrl;
+    if (downloadIcs) downloadIcs.setAttribute('href', feedUrl + '&download=1');
+
+    if (copyBtn && syncUrlInput) {
+      copyBtn.addEventListener('click', function(){
+        syncUrlInput.focus();
+        syncUrlInput.select();
+        var done = function(){
+          var old = copyBtn.textContent;
+          copyBtn.textContent = 'Copied';
+          setTimeout(function(){ copyBtn.textContent = old; }, 1500);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(syncUrlInput.value).then(done, function(){
+            try { document.execCommand('copy'); done(); } catch(e){}
+          });
+        } else {
+          try { document.execCommand('copy'); done(); } catch(e){}
+        }
+      });
+    }
+  })();
 
   // legend
   document.getElementById('legend').addEventListener('click', function(e){
