@@ -81,7 +81,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             );
         }
         if ($stmt->execute()) {
+            $newEventID = $stmt->insert_id;
             $stmt->close();
+
+            // Push a notification to the mobile apps for non-recurring events.
+            // (The API only models single Events; recurring events live in a
+            // separate table and aren't pushed.) Best-effort — never blocks
+            // the redirect, and no-ops until APNs is configured.
+            if (!$recurring) {
+                $pushFile = __DIR__ . '/api/push_event.php';
+                if (is_file($pushFile)) {
+                    require_once $pushFile;
+                    notify_event_created($link, [
+                        'id'       => (int)$newEventID,
+                        'title'    => $eventTitle,
+                        'start'    => $startDateTime,
+                        'allDay'   => (bool)$allDay,
+                        'location' => $location,
+                        'userID'   => (int)$assignedUser, // 0 = joint
+                    ]);
+                }
+            }
+
             $link->close();
             header("Location: calendar.php");
             exit();
