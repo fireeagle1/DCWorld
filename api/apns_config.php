@@ -23,8 +23,18 @@ return [
     'bundle_id' => 'uk.co.ckenterprises.thedash',
 
     // Absolute path to the downloaded AuthKey_XXXXXXXXXX.p8 file.
-    // Keep this OUTSIDE the web-accessible htdocs directory.
-    'auth_key_path' => '/Applications/XAMPP/xamppfiles/secrets/AuthKey_TODO.p8',
+    //
+    // SECURITY: keep this OUTSIDE the web-accessible folder (public_html).
+    // On cPanel your home dir is typically /home/<cpaneluser>, and the site is
+    // served from /home/<cpaneluser>/public_html — so a "secrets" folder in the
+    // home dir sits safely above the web root:
+    //     /home/<cpaneluser>/secrets/AuthKey_XXXXXXXXXX.p8
+    //
+    // __DIR__ resolves this relative to api/, climbing up out of public_html
+    // regardless of the exact cPanel username. Adjust the filename to match
+    // your downloaded key. If this relative path doesn't resolve on your host,
+    // replace it with the absolute path shown in cPanel's File Manager.
+    'auth_key_path' => dirname(__DIR__, 3) . '/secrets/AuthKey_TODO.p8',
 
     // APNs host. Use the sandbox host for development builds signed with a
     // development provisioning profile; the production host for App Store /
