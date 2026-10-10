@@ -12,6 +12,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/auth_middleware.php';
+require_once __DIR__ . '/APNsPusher.php';
 
 $userID = require_auth();
 $method = get_method();
@@ -127,7 +128,87 @@ function handle_post(): void {
     $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 
-    json_response(format_event($row), 201);
+    $event = format_event($row);
+
+    // Notify household members about the newly created event (best-effort).
+    notify_event_created($event);
+
+    json_response($event, 201);
+}
+
+/**
+ * Send push notifications for a newly created event.
+ *
+ * - Joint events (userID 0): notify BOTH household members (UserIDs 1 and 3).
+ * - Personal events: notify only the owner.
+ *
+ * Sends an alert push (so the user sees it) plus a silent push (so the app
+ * can sync the shared event into Apple Calendar in the background).
+ *
+ * Entirely best-effort: any failure is swallowed so event creation always
+ * succeeds, and it no-ops silently until APNs credentials are configured.
+ */
+function notify_event_created(array $event): void {
+    global $link;
+
+    try {
+        $eventUserID = (int)($event['userID'] ?? 0);
+
+        // Which app users should be told about this event.
+        $recipientUserIDs = $eventUserID === 0 ? [1, 3] : [$eventUserID];
+
+        // Gather their device tokens.
+        $placeholders = implode(',', array_fill(0, count($recipientUserIDs), '?'));
+        $types = str_repeat('i', count($recipientUserIDs));
+
+        $stmt = $link->prepare(
+            "SELECT Token, Environment FROM DeviceTokens WHERE UserID IN ($placeholders)"
+        );
+        $stmt->bind_param($types, ...$recipientUserIDs);
+        $stmt->execute();
+        $res = $stmt->get_result();
+
+        $tokens = [];
+        while ($r = $res->fetch_assoc()) {
+            $tokens[] = ['token' => $r['Token'], 'environment' => $r['Environment']];
+        }
+        $stmt->close();
+
+        if (empty($tokens)) return;
+
+        $pusher = new APNsPusher();
+        if (!$pusher->isConfigured()) return;
+
+        // Build a friendly notification body.
+        $title = $eventUserID === 0 ? 'New shared event' : 'New event';
+        $body  = $event['title'] ?? 'A new event was added';
+        if (!empty($event['start'])) {
+            $ts = strtotime($event['start']);
+            if ($ts) {
+                $body .= (bool)($event['allDay'] ?? false)
+                    ? ' · ' . date('D j M', $ts)
+                    : ' · ' . date('D j M, g:ia', $ts);
+            }
+        }
+        if (!empty($event['location'])) {
+            $body .= ' · ' . $event['location'];
+        }
+
+        $pusher->sendAlert($tokens, $title, $body, ['eventID' => (int)$event['id']]);
+        $pusher->sendSilent($tokens, ['sync' => 'events', 'eventID' => (int)$event['id']]);
+
+        // Prune any tokens APNs reported as permanently invalid.
+        if (!empty($pusher->invalidTokens)) {
+            foreach ($pusher->invalidTokens as $dead) {
+                $del = $link->prepare("DELETE FROM DeviceTokens WHERE Token = ?");
+                $del->bind_param('s', $dead);
+                $del->execute();
+                $del->close();
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('notify_event_created failed: ' . $e->getMessage());
+    }
 }
 
 /* ─── PUT ─────────────────────────────────────────────────── */
