@@ -152,29 +152,32 @@ function notify_event_created(array $event): void {
     global $link;
 
     try {
-        $eventUserID = (int)($event['userID'] ?? 0);
+        $eventUserID = (int)($event['userID'] ?? 0); // 0 = joint, 1 = CK, 3 = DC
+        $isJoint = $eventUserID === 0;
 
-        // Which app users should be told about this event.
-        $recipientUserIDs = $eventUserID === 0 ? [1, 3] : [$eventUserID];
-
-        // Gather their device tokens.
-        $placeholders = implode(',', array_fill(0, count($recipientUserIDs), '?'));
-        $types = str_repeat('i', count($recipientUserIDs));
-
-        $stmt = $link->prepare(
-            "SELECT Token, Environment FROM DeviceTokens WHERE UserID IN ($placeholders)"
+        // Pull every device token once, along with the owning user and that
+        // device's chosen notification scope. From this we build two lists:
+        //   $alertTokens — devices whose NOTIFICATION scope includes this event.
+        //   $allTokens   — every device (for the silent sync push; the app
+        //                  applies its own, independent calendar-sync scope).
+        $res = $link->query(
+            "SELECT Token, Environment, UserID, NotificationScope FROM DeviceTokens"
         );
-        $stmt->bind_param($types, ...$recipientUserIDs);
-        $stmt->execute();
-        $res = $stmt->get_result();
 
-        $tokens = [];
+        $alertTokens = [];
+        $allTokens = [];
         while ($r = $res->fetch_assoc()) {
-            $tokens[] = ['token' => $r['Token'], 'environment' => $r['Environment']];
-        }
-        $stmt->close();
+            $entry = ['token' => $r['Token'], 'environment' => $r['Environment']];
+            $allTokens[] = $entry;
 
-        if (empty($tokens)) return;
+            $deviceUserID = (int)$r['UserID'];
+            $scope = $r['NotificationScope'] ?: 'mine';
+            if (event_in_scope($isJoint, $eventUserID, $deviceUserID, $scope)) {
+                $alertTokens[] = $entry;
+            }
+        }
+
+        if (empty($allTokens)) return;
 
         $pusher = new APNsPusher();
         if (!$pusher->isConfigured()) return;
@@ -194,8 +197,12 @@ function notify_event_created(array $event): void {
             $body .= ' · ' . $event['location'];
         }
 
-        $pusher->sendAlert($tokens, $title, $body, ['eventID' => (int)$event['id']]);
-        $pusher->sendSilent($tokens, ['sync' => 'events', 'eventID' => (int)$event['id']]);
+        // Alert push only to devices whose notification scope matches.
+        if (!empty($alertTokens)) {
+            $pusher->sendAlert($alertTokens, $title, $body, ['eventID' => (int)$event['id']]);
+        }
+        // Silent sync push to every device (app applies its own sync scope).
+        $pusher->sendSilent($allTokens, ['sync' => 'events', 'eventID' => (int)$event['id']]);
 
         // Prune any tokens APNs reported as permanently invalid.
         if (!empty($pusher->invalidTokens)) {
@@ -274,6 +281,27 @@ function handle_delete(): void {
     $stmt->close();
 
     json_response(['deleted' => true, 'id' => $id]);
+}
+
+/**
+ * Decide whether an event is in scope for a given device.
+ *
+ * @param bool $isJoint       event is a joint/shared event (userID 0)
+ * @param int  $eventUserID   owner of the event (0/1/3)
+ * @param int  $deviceUserID  the user logged in on the device
+ * @param string $scope       'all' | 'mine' | 'joint'
+ */
+function event_in_scope(bool $isJoint, int $eventUserID, int $deviceUserID, string $scope): bool {
+    switch ($scope) {
+        case 'all':
+            return true;
+        case 'joint':
+            return $isJoint;
+        case 'mine':
+        default:
+            // Joint events, plus events this user owns.
+            return $isJoint || $eventUserID === $deviceUserID;
+    }
 }
 
 /* ─── Helpers ─────────────────────────────────────────────── */

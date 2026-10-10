@@ -40,16 +40,22 @@ function handle_register(int $userID): void {
         $environment = 'production';
     }
 
+    $scope = trim($body['notificationScope'] ?? 'mine');
+    if (!in_array($scope, ['all', 'mine', 'joint'], true)) {
+        $scope = 'mine';
+    }
+
     $stmt = $link->prepare(
-        "INSERT INTO DeviceTokens (UserID, Token, Platform, Environment)
-         VALUES (?, ?, ?, ?)
+        "INSERT INTO DeviceTokens (UserID, Token, Platform, Environment, NotificationScope)
+         VALUES (?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
             UserID = VALUES(UserID),
             Platform = VALUES(Platform),
             Environment = VALUES(Environment),
+            NotificationScope = VALUES(NotificationScope),
             UpdatedAt = CURRENT_TIMESTAMP"
     );
-    $stmt->bind_param('isss', $userID, $token, $platform, $environment);
+    $stmt->bind_param('issss', $userID, $token, $platform, $environment, $scope);
 
     if (!$stmt->execute()) {
         $err = $stmt->error;
