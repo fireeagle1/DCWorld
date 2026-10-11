@@ -25,6 +25,25 @@ $stmt->bind_result($eventTitle, $eventLongDesc, $startDateTime, $endDateTime, $l
 $stmt->fetch();
 $stmt->close();
 
+// Snapshot the ORIGINAL values before the POST handler overwrites them below.
+// Used to decide whether an update is user-meaningful and to build the
+// cancellation push on delete.
+$origEvent = [
+    'id'       => $eventId,
+    'title'    => $eventTitle,
+    'start'    => $startDateTime,
+    'end'      => $endDateTime,
+    'location' => $location,
+    'allDay'   => (bool)(int)$allDay,
+    'userID'   => (int)$eventUserID,
+];
+
+// Shared push helper (best-effort; silently no-ops if unavailable/unconfigured).
+$pushHelper = __DIR__ . '/api/push_event.php';
+if (is_file($pushHelper)) {
+    require_once $pushHelper;
+}
+
 // Fetch list of users for the assignment dropdown
 $users = [];
 $sqlUsers = "SELECT UserID, Name FROM DC_Users ORDER BY Name ASC";
@@ -47,6 +66,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $stmt->bind_param("i", $eventId);
         $stmt->execute();
         $stmt->close();
+
+        // Notify apps that the event was cancelled (also prompts them to
+        // remove it from Apple Calendar).
+        if (function_exists('notify_event_cancelled')) {
+            notify_event_cancelled($link, $origEvent);
+        }
+
         header("Location: calendar.php");
         exit();
     }
@@ -73,6 +99,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $stmt->bind_param("sssssiii", $eventTitle, $eventDesc, $startDateTime, $endDateTime, $location, $allDay, $assignedUser, $eventId);
         $stmt->execute();
         $stmt->close();
+
+        // Notify apps only if a user-meaningful field actually changed.
+        $updatedEvent = [
+            'id'       => $eventId,
+            'title'    => $eventTitle,
+            'start'    => $startDateTime,
+            'end'      => $endDateTime,
+            'location' => $location,
+            'allDay'   => (bool)$allDay,
+            'userID'   => (int)$assignedUser,
+        ];
+        if (function_exists('event_details_changed') && event_details_changed($origEvent, $updatedEvent)) {
+            notify_event_updated($link, $updatedEvent);
+        } elseif (function_exists('send_event_push')) {
+            // No visible change — still wake apps to re-sync, no alert.
+            send_event_push($link, $updatedEvent, '', true);
+        }
+
         header("Location: view_event.php?eventId=" . $eventId);
         exit();
     }

@@ -150,6 +150,15 @@ function handle_put(): void {
     $source = trim($body['source'] ?? 'Mobile');
     $eventUserID = (int)($body['userID'] ?? 0);
 
+    // Snapshot the event before updating, so we only notify on a meaningful change.
+    $beforeStmt = $link->prepare(
+        "SELECT EventTitle, StartDateTime, EndDateTime, Location, AllDay FROM Events WHERE EventID = ?"
+    );
+    $beforeStmt->bind_param('i', $id);
+    $beforeStmt->execute();
+    $beforeRow = $beforeStmt->get_result()->fetch_assoc();
+    $beforeStmt->close();
+
     $stmt = $link->prepare(
         "UPDATE Events SET EventTitle = ?, StartDateTime = ?, EndDateTime = ?, Location = ?, AllDay = ?, Source = ?, userID = ?
          WHERE EventID = ?"
@@ -176,7 +185,24 @@ function handle_put(): void {
     $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 
-    json_response(format_event($row));
+    $event = format_event($row);
+
+    // Only notify if a user-meaningful detail actually changed.
+    $before = [
+        'title'    => $beforeRow['EventTitle'] ?? '',
+        'start'    => $beforeRow['StartDateTime'] ?? '',
+        'end'      => $beforeRow['EndDateTime'] ?? '',
+        'location' => $beforeRow['Location'] ?? '',
+        'allDay'   => (bool)(int)($beforeRow['AllDay'] ?? 0),
+    ];
+    if ($beforeRow && event_details_changed($before, $event)) {
+        notify_event_updated($link, $event);
+    } else {
+        // Details unchanged — still wake apps to keep calendars in sync, no alert.
+        send_event_push($link, $event, '', false);
+    }
+
+    json_response($event);
 }
 
 /* ─── DELETE ──────────────────────────────────────────────── */
@@ -188,6 +214,16 @@ function handle_delete(): void {
         json_error('Event ID is required');
     }
 
+    // Fetch the event before deleting so we can send a cancellation push.
+    $sel = $link->prepare(
+        "SELECT EventID, EventTitle, StartDateTime, EndDateTime, Location, AllDay, Source, userID
+         FROM Events WHERE EventID = ?"
+    );
+    $sel->bind_param('i', $id);
+    $sel->execute();
+    $existingRow = $sel->get_result()->fetch_assoc();
+    $sel->close();
+
     $stmt = $link->prepare("DELETE FROM Events WHERE EventID = ?");
     $stmt->bind_param('i', $id);
     $stmt->execute();
@@ -197,6 +233,10 @@ function handle_delete(): void {
         json_error('Event not found', 404);
     }
     $stmt->close();
+
+    if ($existingRow) {
+        notify_event_cancelled($link, format_event($existingRow));
+    }
 
     json_response(['deleted' => true, 'id' => $id]);
 }

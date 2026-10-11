@@ -1,6 +1,13 @@
 config.php
 api/config.php
 error_log
+# Email-ingest cron with push (contains mailbox password; uploaded manually)
+calendar_ics_push.php
+calendar_ingest_error.log
+# APNs secret config / key
+api/apns_config.php
+api/apns_diagnose.php
+secrets/
 TheDash/
 wardrobe_uploads/
 .DS_Store
