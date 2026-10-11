@@ -12,6 +12,7 @@
  * GET  ?worklocations=1 — list all available work locations
  */
 
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/auth_middleware.php';
