@@ -25,10 +25,13 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/wardrobe_common.php';
 
-// JWT secret must match the one used to sign tokens at login.
-// Guard so we don't collide with a secret defined elsewhere.
-if (!defined('JWT_SECRET')) {
-    define('JWT_SECRET', 'vJV6VNQxjGQ8AaDQyVHHT76BdPh_mobile_api_2025');
+// JWT secret must come from config.php (git-ignored, holds the real secret).
+// No hard-coded fallback here: a default in this tracked file would re-expose
+// the signing key. Fail closed if config did not provide it.
+if (!defined('JWT_SECRET') || JWT_SECRET === '') {
+    if (ob_get_level()) { ob_end_clean(); }
+    http_response_code(500);
+    exit;
 }
 
 // --- Minimal, dependency-free JWT verification (bearer token) -------------

@@ -151,6 +151,11 @@ function handle_put(): void {
     $body = get_json_body();
     $id = (int)require_field($body, 'id');
 
+    // Authorization: only the creator (or anyone, for shared/unowned contacts)
+    // may edit this contact.
+    [$exists, $ownerID] = contact_owner($id);
+    require_can_mutate($userID, $ownerID, $exists);
+
     $knownAs = trim(require_field($body, 'knownAs'));
     $firstName = trim(require_field($body, 'firstName'));
     $lastName = trim(require_field($body, 'lastName'));
@@ -208,12 +213,17 @@ function handle_put(): void {
 
 /* ─── DELETE ──────────────────────────────────────────────── */
 function handle_delete(): void {
-    global $link;
+    global $link, $userID;
 
     $id = (int)($_GET['id'] ?? 0);
     if ($id === 0) {
         json_error('Contact ID is required');
     }
+
+    // Authorization: only the creator (or anyone, for shared/unowned contacts)
+    // may delete this contact.
+    [$exists, $ownerID] = contact_owner($id);
+    require_can_mutate($userID, $ownerID, $exists);
 
     $stmt = $link->prepare("DELETE FROM Contacts WHERE ContactID = ?");
     $stmt->bind_param('i', $id);
@@ -229,6 +239,29 @@ function handle_delete(): void {
 }
 
 /* ─── Helpers ─────────────────────────────────────────────── */
+
+/**
+ * Look up ownership of a contact for authorization.
+ * Returns [rowExists (bool), ownerID (int|null)] where ownerID is CreatedBy.
+ * A null/0 owner is treated as a shared contact that any member may modify.
+ */
+function contact_owner(int $contactID): array {
+    global $link;
+
+    $stmt = $link->prepare("SELECT CreatedBy FROM Contacts WHERE ContactID = ?");
+    $stmt->bind_param('i', $contactID);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if (!$row) {
+        return [false, null];
+    }
+
+    $owner = $row['CreatedBy'] !== null ? (int)$row['CreatedBy'] : null;
+    return [true, $owner];
+}
+
 function format_contact(array $row): array {
     return [
         'id' => (int)$row['ContactID'],

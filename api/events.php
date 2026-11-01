@@ -138,10 +138,16 @@ function handle_post(): void {
 
 /* ─── PUT ─────────────────────────────────────────────────── */
 function handle_put(): void {
-    global $link;
+    global $link, $userID;
 
     $body = get_json_body();
     $id = (int)require_field($body, 'id');
+
+    // Authorization: only the owning member (or anyone, for joint events)
+    // may edit this event.
+    [$exists, $ownerID] = event_owner($id);
+    require_can_mutate($userID, $ownerID, $exists);
+
     $title = trim(require_field($body, 'title'));
     $start = require_field($body, 'start');
     $end = $body['end'] ?? null;
@@ -207,12 +213,17 @@ function handle_put(): void {
 
 /* ─── DELETE ──────────────────────────────────────────────── */
 function handle_delete(): void {
-    global $link;
+    global $link, $userID;
 
     $id = (int)($_GET['id'] ?? 0);
     if ($id === 0) {
         json_error('Event ID is required');
     }
+
+    // Authorization: only the owning member (or anyone, for joint events)
+    // may delete this event.
+    [$exists, $ownerID] = event_owner($id);
+    require_can_mutate($userID, $ownerID, $exists);
 
     // Fetch the event before deleting so we can send a cancellation push.
     $sel = $link->prepare(
@@ -242,6 +253,30 @@ function handle_delete(): void {
 }
 
 /* ─── Helpers ─────────────────────────────────────────────── */
+
+/**
+ * Look up ownership of an event for authorization.
+ * Returns [rowExists (bool), ownerID (int|null)] where ownerID is Events.userID.
+ * userID 0 means a joint event that any member may modify; 1/3 restrict to that
+ * member.
+ */
+function event_owner(int $eventID): array {
+    global $link;
+
+    $stmt = $link->prepare("SELECT userID FROM Events WHERE EventID = ?");
+    $stmt->bind_param('i', $eventID);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if (!$row) {
+        return [false, null];
+    }
+
+    $owner = $row['userID'] !== null ? (int)$row['userID'] : 0;
+    return [true, $owner];
+}
+
 function format_event(array $row): array {
     $uid = isset($row['userID']) ? (int)$row['userID'] : 0;
     // 0 = Joint, 1 = CK, 3 = DC

@@ -8,11 +8,12 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 
-// Fallback definitions so a stale/older config.php (missing these) does not
-// fatal-error. config.php should normally define both; these must match the
-// values used to sign and verify tokens across all environments.
-if (!defined('JWT_SECRET')) {
-    define('JWT_SECRET', 'vJV6VNQxjGQ8AaDQyVHHT76BdPh_mobile_api_2025');
+// The JWT secret MUST come from config.php (which is git-ignored and holds the
+// real secret). We deliberately do NOT define a fallback here: a hard-coded
+// default in this tracked file would re-expose the signing key publicly. If the
+// secret is missing, fail closed rather than silently signing with a known value.
+if (!defined('JWT_SECRET') || JWT_SECRET === '') {
+    json_error('Server auth misconfiguration', 500);
 }
 if (!defined('JWT_EXPIRY')) {
     define('JWT_EXPIRY', 86400 * 30); // 30 days
@@ -96,6 +97,40 @@ function require_auth(): int {
     }
 
     return (int)$payload['sub'];
+}
+
+/**
+ * Fine-grained authorization helpers.
+ *
+ * The dashboard is a shared household: every authenticated member may READ and
+ * CREATE records. For EDIT/DELETE we enforce ownership so a member cannot modify
+ * another member's personally-owned record. Records with no owner (joint/shared,
+ * owner id 0 or NULL) remain editable by any member.
+ */
+
+/**
+ * Decide whether $userID may mutate (edit/delete) a record owned by $ownerID.
+ * An owner id of 0 or null means the record is joint/shared and mutable by all.
+ */
+function can_mutate_owned(int $userID, ?int $ownerID): bool {
+    if ($ownerID === null || $ownerID === 0) {
+        return true; // joint / unowned
+    }
+    return $ownerID === $userID;
+}
+
+/**
+ * Require that $userID may mutate a record owned by $ownerID, or halt with 403.
+ * $notFound signals the caller passed an owner lookup for a row that doesn't
+ * exist, so we surface a 404 instead of leaking existence via a 403.
+ */
+function require_can_mutate(int $userID, ?int $ownerID, bool $rowExists = true): void {
+    if (!$rowExists) {
+        json_error('Not found', 404);
+    }
+    if (!can_mutate_owned($userID, $ownerID)) {
+        json_error('You do not have permission to modify this record', 403);
+    }
 }
 
 /**
